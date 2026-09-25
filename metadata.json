@@ -1,0 +1,8 @@
+{
+  "name": "Manpower",
+  "description": "Connecting talent with opportunities locally and internationally.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
