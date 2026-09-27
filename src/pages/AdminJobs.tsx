@@ -441,9 +441,6 @@ export default function AdminJobs() {
           </form>
 
           <div className="mt-8 pt-6 border-t border-slate-100 text-center">
-            <p className="text-xs text-slate-400 mb-3">
-              Default password: <span className="font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">admin</span> or <span className="font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">maisc2024</span>
-            </p>
             <div className="flex items-center justify-center gap-4 text-xs">
               <Link
                 to="/job-openings"

@@ -1,5 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Globe, Facebook, Linkedin, Youtube, Mail } from "lucide-react";
+import { Facebook, Linkedin, Youtube, Mail } from "lucide-react";
 
 export default function Footer() {
   const location = useLocation();
@@ -20,8 +20,8 @@ export default function Footer() {
   return (
     <footer className="bg-slate-900 text-slate-300">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-          <div className="col-span-1 md:col-span-2">
+        <div className="flex flex-col md:flex-row justify-between items-start gap-8">
+          <div className="max-w-xl">
              <Link 
               to="/" 
               onClick={(e) => handleFooterLinkClick("/", e)}
@@ -39,24 +39,9 @@ export default function Footer() {
                 </span>
               </div>
             </Link>
-            <p className="text-sm text-slate-400 max-w-md">
+            <p className="text-sm text-slate-400 max-w-md leading-relaxed">
               Your global career partner. We connect trusted employers worldwide with skilled professionals across the Philippines.
             </p>
-          </div>
-          
-          <div>
-            <h3 className="text-sm font-semibold text-white tracking-wider uppercase mb-4">Quick Links</h3>
-            <ul className="space-y-3">
-              <li><Link to="/" onClick={(e) => handleFooterLinkClick("/", e)} className="text-sm hover:text-white transition-colors">Home</Link></li>
-              <li><Link to="/who-we-are" onClick={(e) => handleFooterLinkClick("/who-we-are", e)} className="text-sm hover:text-white transition-colors">Who We Are</Link></li>
-              <li><Link to="/what-we-do" onClick={(e) => handleFooterLinkClick("/what-we-do", e)} className="text-sm hover:text-white transition-colors">What We Do</Link></li>
-              <li><Link to="/why-choose-maisc" onClick={(e) => handleFooterLinkClick("/why-choose-maisc", e)} className="text-sm hover:text-white transition-colors">Why Choose MAISC</Link></li>
-              <li><Link to="/job-openings" onClick={(e) => handleFooterLinkClick("/job-openings", e)} className="text-sm hover:text-white transition-colors">Job Openings</Link></li>
-              <li><Link to="/key-industries-served" onClick={(e) => handleFooterLinkClick("/key-industries-served", e)} className="text-sm hover:text-white transition-colors">Key Industries Served</Link></li>
-              <li><Link to="/our-work-in-action" onClick={(e) => handleFooterLinkClick("/our-work-in-action", e)} className="text-sm hover:text-white transition-colors">Our Work in Action</Link></li>
-              <li><Link to="/partners" onClick={(e) => handleFooterLinkClick("/partners", e)} className="text-sm hover:text-white transition-colors">Become Our Partner</Link></li>
-              <li><Link to="/contact-us" onClick={(e) => handleFooterLinkClick("/contact-us", e)} className="text-sm hover:text-white transition-colors">Contact Us</Link></li>
-            </ul>
           </div>
 
           <div>
