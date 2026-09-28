@@ -18,6 +18,7 @@ import {
   Check
 } from "lucide-react";
 import { savePartnerRequest } from "../data/partnerStore";
+import { submitPartnerInquiryToSupabase } from "../lib/supabase";
 
 export default function EuropeanPartnerForm() {
   // Section 1: Company Information
@@ -62,6 +63,7 @@ export default function EuropeanPartnerForm() {
   // Form Submission Status
   const [agreedToTerms, setAgreedToTerms] = useState(true);
   const [status, setStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [submittedRefId, setSubmittedRefId] = useState("");
   const [copiedLink, setCopiedLink] = useState(false);
 
@@ -139,8 +141,10 @@ export default function EuropeanPartnerForm() {
       : partnershipType;
 
     try {
-      // 1. Save to local application store for instant admin review
-      const savedRecord = savePartnerRequest({
+      const generatedRefId = `REQ-EUR-${new Date().getFullYear()}-${Math.floor(100 + Math.random() * 900)}`;
+      const inquiryPayload = {
+        id: generatedRefId,
+        submittedAt: new Date().toISOString(),
         companyName,
         country,
         city,
@@ -149,10 +153,8 @@ export default function EuropeanPartnerForm() {
         designation,
         corporateEmail,
         phoneNumber,
-        website,
-        registrationNumber,
-
-        // Section 2
+        website: website || undefined,
+        registrationNumber: registrationNumber || undefined,
         partnershipType: effectivePartnershipType,
         partnershipTypeOther,
         previouslyRecruitedFilipino,
@@ -160,22 +162,33 @@ export default function EuropeanPartnerForm() {
         hasPhilippinePartner,
         currentPhilippinePartnerName: hasPhilippinePartner === "Yes" ? currentPhilippinePartnerName : "None / N/A",
         additionalInfo,
-
-        // Section 3
         targetPositions,
         estimatedHeadcount,
         targetDeploymentTimeline,
         workplaceLocation: workplaceLocation || `${city}, ${country}`,
-        candidateRequirements
-      });
+        candidateRequirements,
+        status: "New" as const
+      };
 
-      setSubmittedRefId(savedRecord.id);
+      // 1. Authoritative Supabase submission to partner_inquiries table
+      const sbResult = await submitPartnerInquiryToSupabase(inquiryPayload);
+      if (!sbResult.success) {
+        const detail = sbResult.error?.message || (typeof sbResult.error === "string" ? sbResult.error : "Database unavailable");
+        setErrorMessage(`Unable to submit partner inquiry to the recruitment database (${detail}). In accordance with data integrity rules, submissions are not saved locally when database synchronization fails. Please verify your connection and try again.`);
+        setStatus("error");
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
 
-      // 2. Transmit via email to management (noelcoronel23@gmail.com, cc arnizza1973@gmail.com)
+      // 2. Only after Supabase confirms successful insertion, mirror to local store
+      savePartnerRequest(inquiryPayload);
+      setSubmittedRefId(generatedRefId);
+
+      // 3. Transmit via email to management (noelcoronel23@gmail.com, cc arnizza1973@gmail.com)
       const emailPayload = {
-        _subject: `[Manpower Request] ${companyName} (${country}) - ${savedRecord.id}`,
+        _subject: `[Manpower Request] ${companyName} (${country}) - ${generatedRefId}`,
         _cc: "arnizza1973@gmail.com",
-        "Reference ID": savedRecord.id,
+        "Reference ID": generatedRefId,
         "Submission Time": new Date().toLocaleString(),
 
         // Section 1
@@ -214,14 +227,16 @@ export default function EuropeanPartnerForm() {
           body: JSON.stringify(emailPayload)
         });
       } catch (fetchErr) {
-        console.warn("Formsubmit external relay notice, record stored locally:", fetchErr);
+        console.warn("Formsubmit external relay notice:", fetchErr);
       }
 
       setStatus("success");
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      setErrorMessage(err?.message || "An unexpected error occurred while connecting to the database.");
       setStatus("error");
+      window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
 
@@ -352,11 +367,12 @@ export default function EuropeanPartnerForm() {
 
         {/* Error Alert */}
         {status === "error" && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-5 mb-8 flex items-start gap-3">
+          <div className="bg-red-50 border-2 border-red-300 rounded-xl p-5 mb-8 flex items-start gap-3 shadow-xs">
             <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-            <div className="text-xs text-red-800">
-              <p className="font-bold mb-1">There was an issue transmitting your request automatically.</p>
-              <p>Your details were preserved. Please verify your connection or email our bilateral team directly at <strong>inquiry@maisc.ph</strong> with your company profile.</p>
+            <div className="text-xs text-red-900">
+              <p className="font-bold text-sm mb-1">Partner Inquiry Submission Failed</p>
+              <p className="leading-relaxed">{errorMessage || "There was an issue transmitting your request to the Supabase database. Your inquiry was not saved."}</p>
+              <p className="mt-2 text-red-700">In accordance with database integrity rules, partner requests are not stored locally when database synchronization fails.</p>
             </div>
           </div>
         )}

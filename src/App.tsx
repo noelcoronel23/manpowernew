@@ -20,6 +20,7 @@ import Organisation from "./pages/Organisation";
 import OurWorkInAction from "./pages/OurWorkInAction";
 import Partners from "./pages/Partners";
 import JobOpenings from "./pages/JobOpenings";
+import JobDetails from "./pages/JobDetails";
 import WhyChooseMaisc from "./pages/WhyChooseMaisc";
 import KeyIndustriesServed from "./pages/KeyIndustriesServed";
 import AdminJobs from "./pages/AdminJobs";
@@ -39,6 +40,8 @@ export default function App() {
           <Route path="what-we-do" element={<WhatWeDo />} />
           <Route path="why-choose-maisc" element={<WhyChooseMaisc />} />
           <Route path="job-openings" element={<JobOpenings />} />
+          <Route path="job-openings/:jobId" element={<JobDetails />} />
+          <Route path="jobs/:jobId" element={<JobDetails />} />
           <Route path="key-industries-served" element={<KeyIndustriesServed />} />
           <Route path="international-partners" element={<Partners />} />
           <Route path="our-work-in-action" element={<OurWorkInAction />} />

@@ -16,9 +16,14 @@ import {
   X,
   ExternalLink,
   ArrowRight,
-  Sparkles
+  Sparkles,
+  AlertCircle
 } from "lucide-react";
 import { submitApplication, ApplicantDocument } from "../data/applicantStore";
+import { 
+  uploadCandidateDocumentToStorage, 
+  submitCandidateApplicationToSupabase 
+} from "../lib/supabase";
 
 export default function ApplyNow() {
   const [searchParams] = useSearchParams();
@@ -41,6 +46,7 @@ export default function ApplyNow() {
   const [passportExpiry, setPassportExpiry] = useState("");
   const [notes, setNotes] = useState("");
   const [privacyAgreed, setPrivacyAgreed] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
 
   useEffect(() => {
     const pos = searchParams.get("position");
@@ -51,10 +57,15 @@ export default function ApplyNow() {
 
   // Uploaded documents state
   const [photo2x2, setPhoto2x2] = useState<ApplicantDocument | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [passportCopy, setPassportCopy] = useState<ApplicantDocument | null>(null);
+  const [passportFile, setPassportFile] = useState<File | null>(null);
   const [resume, setResume] = useState<ApplicantDocument | null>(null);
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [certificates, setCertificates] = useState<ApplicantDocument[]>([]);
+  const [certFiles, setCertFiles] = useState<File[]>([]);
   const [nbiClearance, setNbiClearance] = useState<ApplicantDocument | null>(null);
+  const [nbiFile, setNbiFile] = useState<File | null>(null);
 
   // File helper
   const readFileAsDataUrl = (file: File): Promise<string> => {
@@ -69,6 +80,7 @@ export default function ApplyNow() {
   const handleSingleFileUpload = async (
     e: React.ChangeEvent<HTMLInputElement>,
     setter: (doc: ApplicantDocument | null) => void,
+    fileSetter?: (file: File | null) => void,
     maxSizeMb = 10
   ) => {
     const file = e.target.files?.[0];
@@ -80,6 +92,7 @@ export default function ApplyNow() {
     }
 
     try {
+      if (fileSetter) fileSetter(file);
       const dataUrl = await readFileAsDataUrl(file);
       setter({
         name: file.name,
@@ -101,10 +114,12 @@ export default function ApplyNow() {
     if (!files || files.length === 0) return;
 
     const newDocs: ApplicantDocument[] = [];
+    const validFiles: File[] = [];
     for (let i = 0; i < Math.min(files.length, maxCount); i++) {
       const file = files[i];
       if (file.size > 10 * 1024 * 1024) continue;
       try {
+        validFiles.push(file);
         const dataUrl = await readFileAsDataUrl(file);
         newDocs.push({
           name: file.name,
@@ -116,6 +131,7 @@ export default function ApplyNow() {
         console.error("Error reading file:", err);
       }
     }
+    setCertFiles(prev => [...prev, ...validFiles]);
     setCertificates(prev => [...prev, ...newDocs]);
   };
 
@@ -125,7 +141,7 @@ export default function ApplyNow() {
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!privacyAgreed) {
       alert("Please agree to the Data Privacy Act statement before submitting.");
@@ -139,9 +155,71 @@ export default function ApplyNow() {
     }
 
     setIsSubmitting(true);
+    setSubmissionError(null);
 
-    setTimeout(() => {
-      const newApp = submitApplication({
+    try {
+      const generatedId = `app-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+
+      // 1. Upload files to Supabase 'candidate-documents' storage bucket
+      let finalResume = resume;
+      if (resumeFile) {
+        const uploadRes = await uploadCandidateDocumentToStorage(resumeFile, generatedId, "resume");
+        if (uploadRes.error) {
+          throw new Error(`Failed to upload Resume to secure storage: ${uploadRes.error.message || uploadRes.error}`);
+        }
+        if (uploadRes.path) {
+          finalResume = { ...resume!, storagePath: uploadRes.path } as any;
+        }
+      }
+
+      let finalPassport = passportCopy;
+      if (passportFile) {
+        const uploadRes = await uploadCandidateDocumentToStorage(passportFile, generatedId, "passport");
+        if (uploadRes.error) {
+          throw new Error(`Failed to upload Passport copy to secure storage: ${uploadRes.error.message || uploadRes.error}`);
+        }
+        if (uploadRes.path) {
+          finalPassport = { ...passportCopy!, storagePath: uploadRes.path } as any;
+        }
+      }
+
+      let finalPhoto = photo2x2;
+      if (photoFile) {
+        const uploadRes = await uploadCandidateDocumentToStorage(photoFile, generatedId, "photo_2x2");
+        if (uploadRes.error) {
+          throw new Error(`Failed to upload 2x2 Photo to secure storage: ${uploadRes.error.message || uploadRes.error}`);
+        }
+        if (uploadRes.path) {
+          finalPhoto = { ...photo2x2!, storagePath: uploadRes.path } as any;
+        }
+      }
+
+      let finalNbi = nbiClearance;
+      if (nbiFile) {
+        const uploadRes = await uploadCandidateDocumentToStorage(nbiFile, generatedId, "nbi_clearance");
+        if (uploadRes.error) {
+          throw new Error(`Failed to upload NBI Clearance to secure storage: ${uploadRes.error.message || uploadRes.error}`);
+        }
+        if (uploadRes.path) {
+          finalNbi = { ...nbiClearance!, storagePath: uploadRes.path } as any;
+        }
+      }
+
+      const finalCertificates = [...certificates];
+      for (let i = 0; i < certFiles.length; i++) {
+        const cFile = certFiles[i];
+        const uploadRes = await uploadCandidateDocumentToStorage(cFile, generatedId, `cert_${i + 1}`);
+        if (uploadRes.error) {
+          throw new Error(`Failed to upload Certificate "${cFile.name}" to secure storage: ${uploadRes.error.message || uploadRes.error}`);
+        }
+        if (uploadRes.path && finalCertificates[i]) {
+          (finalCertificates[i] as any).storagePath = uploadRes.path;
+        }
+      }
+
+      // 2. Authoritative Supabase submission to candidate_applications table
+      const candidatePayload = {
+        id: generatedId,
         fullName: fullName.trim(),
         email: email.trim(),
         phone: phone.trim(),
@@ -155,18 +233,34 @@ export default function ApplyNow() {
         passportNumber: passportNumber.trim() || undefined,
         passportExpiry: passportExpiry.trim() || undefined,
         notes: notes.trim() || undefined,
-        photo2x2: photo2x2 || undefined,
-        passportCopy: passportCopy || undefined,
-        resume: resume || undefined,
-        certificates: certificates.length > 0 ? certificates : undefined,
-        nbiClearance: nbiClearance || undefined,
-      });
+        photo2x2: finalPhoto || undefined,
+        passportCopy: finalPassport || undefined,
+        resume: finalResume || undefined,
+        certificates: finalCertificates.length > 0 ? finalCertificates : undefined,
+        nbiClearance: finalNbi || undefined,
+        submittedAt: new Date().toISOString(),
+        status: "Pending Review" as const
+      };
 
-      setReferenceId(newApp.id.toUpperCase());
+      const sbResult = await submitCandidateApplicationToSupabase(candidatePayload);
+      if (!sbResult.success) {
+        const detail = sbResult.error?.message || (typeof sbResult.error === "string" ? sbResult.error : "Database unavailable");
+        throw new Error(`Unable to connect to the recruitment database (${detail}). Your application was NOT saved.`);
+      }
+
+      // 3. Only after Supabase verifies successful submission, mirror to local store
+      submitApplication(candidatePayload);
+
+      setReferenceId(generatedId.toUpperCase());
       setIsSubmitting(false);
       setSubmitted(true);
       window.scrollTo({ top: 0, behavior: "smooth" });
-    }, 600);
+    } catch (err: any) {
+      console.error("Error submitting application:", err);
+      setIsSubmitting(false);
+      setSubmissionError(err.message || "There was an issue submitting your application to the recruitment database. Your application was NOT recorded. Please check your connection and try again.");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
   };
 
   // SUCCESS SCREEN
@@ -337,6 +431,18 @@ export default function ApplyNow() {
             <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
           </a>
         </div>
+
+        {/* Submission Error Banner */}
+        {submissionError && (
+          <div className="bg-rose-50 border-2 border-rose-300 rounded-2xl p-5 mb-8 flex items-start gap-3 shadow-xs">
+            <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+            <div className="text-xs text-rose-900">
+              <p className="font-bold text-sm mb-1">Application Submission Failed</p>
+              <p className="leading-relaxed">{submissionError}</p>
+              <p className="mt-2 text-rose-700">Please note: In accordance with data integrity requirements, applications are not saved locally when database synchronization fails.</p>
+            </div>
+          </div>
+        )}
 
         {/* Application Form */}
         <form onSubmit={handleSubmit} className="bg-white rounded-3xl border border-slate-200/90 shadow-sm overflow-hidden">
@@ -623,7 +729,7 @@ export default function ApplyNow() {
                     <input
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
-                      onChange={(e) => handleSingleFileUpload(e, setPhoto2x2)}
+                      onChange={(e) => handleSingleFileUpload(e, setPhoto2x2, setPhotoFile)}
                       className="hidden"
                     />
                   </label>
@@ -656,7 +762,10 @@ export default function ApplyNow() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setPassportCopy(null)}
+                      onClick={() => {
+                        setPassportCopy(null);
+                        setPassportFile(null);
+                      }}
                       className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-50"
                       title="Remove"
                     >
@@ -671,7 +780,7 @@ export default function ApplyNow() {
                     <input
                       type="file"
                       accept="application/pdf,image/jpeg,image/png"
-                      onChange={(e) => handleSingleFileUpload(e, setPassportCopy)}
+                      onChange={(e) => handleSingleFileUpload(e, setPassportCopy, setPassportFile)}
                       className="hidden"
                     />
                   </label>
@@ -704,7 +813,10 @@ export default function ApplyNow() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setResume(null)}
+                      onClick={() => {
+                        setResume(null);
+                        setResumeFile(null);
+                      }}
                       className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-50"
                       title="Remove"
                     >
@@ -719,7 +831,7 @@ export default function ApplyNow() {
                     <input
                       type="file"
                       accept=".pdf,.doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                      onChange={(e) => handleSingleFileUpload(e, setResume)}
+                      onChange={(e) => handleSingleFileUpload(e, setResume, setResumeFile)}
                       className="hidden"
                     />
                   </label>
@@ -752,7 +864,10 @@ export default function ApplyNow() {
                     </div>
                     <button
                       type="button"
-                      onClick={() => setNbiClearance(null)}
+                      onClick={() => {
+                        setNbiClearance(null);
+                        setNbiFile(null);
+                      }}
                       className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-50"
                       title="Remove"
                     >
@@ -767,7 +882,7 @@ export default function ApplyNow() {
                     <input
                       type="file"
                       accept="application/pdf,image/jpeg,image/png"
-                      onChange={(e) => handleSingleFileUpload(e, setNbiClearance)}
+                      onChange={(e) => handleSingleFileUpload(e, setNbiClearance, setNbiFile)}
                       className="hidden"
                     />
                   </label>

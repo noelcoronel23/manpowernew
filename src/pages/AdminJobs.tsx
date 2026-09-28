@@ -26,6 +26,21 @@ import {
   subscribeToPartnerRequests
 } from "../data/partnerStore";
 import {
+  fetchJobViewStats,
+  checkSupabaseIsAdmin,
+  isSupabaseConfigured,
+  fetchSupabaseJobs,
+  saveSupabaseJob,
+  deleteSupabaseJob,
+  fetchCandidateApplicationsFromSupabase,
+  updateCandidateApplicationStatusInSupabase,
+  deleteCandidateApplicationInSupabase,
+  fetchPartnerInquiriesFromSupabase,
+  updatePartnerInquiryStatusInSupabase,
+  deletePartnerInquiryInSupabase,
+  getCandidateDocumentUrl
+} from "../lib/supabase";
+import {
   Briefcase,
   Plus,
   Trash2,
@@ -70,13 +85,19 @@ export default function AdminJobs() {
   const [passwordInput, setPasswordInput] = useState<string>("");
   const [authError, setAuthError] = useState<string>("");
 
-  // Navigation tab: 'jobs' | 'applicants' | 'partners'
-  const [activeTab, setActiveTab] = useState<"jobs" | "applicants" | "partners">("jobs");
+  // Navigation tab: 'jobs' | 'applicants' | 'partners' | 'views'
+  const [activeTab, setActiveTab] = useState<"jobs" | "applicants" | "partners" | "views">("jobs");
 
   // Job management states
   const [jobs, setJobs] = useState<Job[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<string>("All");
+
+  // Job Views states (Supabase-tracked)
+  const [jobViewsMap, setJobViewsMap] = useState<Record<string, number>>({});
+  const [viewsLoading, setViewsLoading] = useState<boolean>(false);
+  const [viewsSort, setViewsSort] = useState<"most-viewed" | "least-viewed" | "title" | "status">("most-viewed");
+  const [isSupabaseAdmin, setIsSupabaseAdmin] = useState<boolean>(false);
 
   // Applicant management states
   const [applications, setApplications] = useState<CandidateApplication[]>([]);
@@ -120,12 +141,46 @@ export default function AdminJobs() {
     }
   }, []);
 
-  // Load and subscribe to jobs, applications, and partner requests
+  // Load view stats
+  const loadJobViews = async () => {
+    setViewsLoading(true);
+    try {
+      const stats = await fetchJobViewStats();
+      setJobViewsMap(stats);
+    } catch (err) {
+      console.error("Failed to load view stats:", err);
+    } finally {
+      setViewsLoading(false);
+    }
+  };
+
+  // Load and subscribe to jobs, applications, partner requests, and view tracking
   useEffect(() => {
     if (isAuthenticated) {
       setJobs(getJobs());
       setApplications(getApplications());
       setPartnerRequests(getPartnerRequests());
+      loadJobViews();
+      checkSupabaseIsAdmin().then(setIsSupabaseAdmin);
+
+      // Fetch from authoritative Supabase tables
+      fetchSupabaseJobs().then((sbJobs) => {
+        if (sbJobs && sbJobs.length > 0) {
+          setJobs(sbJobs);
+        }
+      });
+
+      fetchCandidateApplicationsFromSupabase().then((sbApps) => {
+        if (sbApps !== null) {
+          setApplications(sbApps);
+        }
+      });
+
+      fetchPartnerInquiriesFromSupabase().then((sbPartners) => {
+        if (sbPartners !== null) {
+          setPartnerRequests(sbPartners);
+        }
+      });
 
       const unsubJobs = subscribeToJobs(() => {
         setJobs(getJobs());
@@ -137,10 +192,16 @@ export default function AdminJobs() {
         setPartnerRequests(getPartnerRequests());
       });
 
+      const handleViewsUpdate = () => {
+        loadJobViews();
+      };
+      window.addEventListener("maisc_job_views_updated", handleViewsUpdate);
+
       return () => {
         unsubJobs();
         unsubApps();
         unsubPartners();
+        window.removeEventListener("maisc_job_views_updated", handleViewsUpdate);
       };
     }
   }, [isAuthenticated]);
@@ -214,7 +275,7 @@ export default function AdminJobs() {
     setIsFormOpen(true);
   };
 
-  const handleSaveJob = (e: React.FormEvent) => {
+  const handleSaveJob = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim() || !formLocation.trim() || !formDescription.trim()) {
       alert("Please fill in the Job Title, Location, and Description.");
@@ -226,40 +287,52 @@ export default function AdminJobs() {
       .map(s => s.trim())
       .filter(s => s.length > 0);
 
+    const jobPayload = {
+      title: formTitle.trim(),
+      category: formCategory,
+      location: formLocation.trim(),
+      type: formType.trim(),
+      experience: formExperience.trim(),
+      description: formDescription.trim(),
+      keySkills: skillsArray.length > 0 ? skillsArray : ["Relevant Experience Required"],
+      status: formStatus,
+      applyUrl: formApplyUrl.trim(),
+      salary: formSalary.trim()
+    };
+
+    const targetJob: Job = {
+      ...jobPayload,
+      id: editingJobId || `job-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      postedDate: new Date().toISOString().split("T")[0]
+    };
+
+    if (isSupabaseConfigured) {
+      const saved = await saveSupabaseJob(targetJob);
+      if (!saved) {
+        alert("Failed to save job to the Supabase database. The change was NOT saved to production.");
+        return;
+      }
+    }
+
     if (editingJobId) {
-      updateJob(editingJobId, {
-        title: formTitle.trim(),
-        category: formCategory,
-        location: formLocation.trim(),
-        type: formType.trim(),
-        experience: formExperience.trim(),
-        description: formDescription.trim(),
-        keySkills: skillsArray.length > 0 ? skillsArray : ["Relevant Experience Required"],
-        status: formStatus,
-        applyUrl: formApplyUrl.trim(),
-        salary: formSalary.trim()
-      });
+      updateJob(editingJobId, jobPayload);
     } else {
-      addJob({
-        title: formTitle.trim(),
-        category: formCategory,
-        location: formLocation.trim(),
-        type: formType.trim(),
-        experience: formExperience.trim(),
-        description: formDescription.trim(),
-        keySkills: skillsArray.length > 0 ? skillsArray : ["Relevant Experience Required"],
-        status: formStatus,
-        applyUrl: formApplyUrl.trim(),
-        salary: formSalary.trim()
-      });
+      addJob(jobPayload);
     }
 
     setIsFormOpen(false);
     setEditingJobId(null);
   };
 
-  const handleDeleteJob = (id: string, title: string) => {
+  const handleDeleteJob = async (id: string, title: string) => {
     if (window.confirm(`Are you sure you want to delete the job opening: "${title}"?`)) {
+      if (isSupabaseConfigured) {
+        const deleted = await deleteSupabaseJob(id);
+        if (!deleted) {
+          alert("Failed to delete job from the Supabase database. The job was NOT removed from production.");
+          return;
+        }
+      }
       deleteJob(id);
     }
   };
@@ -298,29 +371,43 @@ export default function AdminJobs() {
   };
 
   // Applicant Actions
-  const handleDeleteApplicant = (id: string, name: string) => {
+  const handleDeleteApplicant = async (id: string, name: string) => {
     if (window.confirm(`Are you sure you want to delete application record for "${name}"?`)) {
+      if (isSupabaseConfigured) {
+        await deleteCandidateApplicationInSupabase(id);
+      }
       deleteApplication(id);
+      setApplications(prev => prev.filter(a => a.id !== id));
       if (selectedApplicant?.id === id) {
         setSelectedApplicant(null);
       }
     }
   };
 
-  const handleStatusChange = (id: string, newStatus: CandidateApplication["status"]) => {
+  const handleStatusChange = async (id: string, newStatus: CandidateApplication["status"]) => {
+    if (isSupabaseConfigured) {
+      await updateCandidateApplicationStatusInSupabase(id, newStatus);
+    }
     updateApplicationStatus(id, newStatus);
+    setApplications(prev => prev.map(a => a.id === id ? { ...a, status: newStatus } : a));
     if (selectedApplicant?.id === id) {
       setSelectedApplicant(prev => prev ? { ...prev, status: newStatus } : null);
     }
   };
 
-  const downloadDocument = (doc: ApplicantDocument, candidateName: string) => {
-    if (!doc.dataUrl) {
-      alert("Document data is unavailable.");
+  const downloadDocument = async (doc: ApplicantDocument, candidateName: string) => {
+    let targetUrl = doc.dataUrl;
+    if (!targetUrl && (doc as any).storagePath) {
+      targetUrl = (await getCandidateDocumentUrl((doc as any).storagePath)) || undefined;
+    }
+    if (!targetUrl) {
+      alert("Document file is currently unavailable or pending sync.");
       return;
     }
     const a = document.createElement("a");
-    a.href = doc.dataUrl;
+    a.href = targetUrl;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
     a.download = `${candidateName.replace(/\s+/g, "_")}_${doc.name}`;
     document.body.appendChild(a);
     a.click();
@@ -364,12 +451,33 @@ export default function AdminJobs() {
     return matchesStatus && matchesSearch;
   });
 
+  // Job Views statistics calculation
+  const totalJobViews = Object.values(jobViewsMap).reduce((acc, curr) => acc + curr, 0);
+
+  const sortedJobsByViews = [...jobs].sort((a, b) => {
+    const viewsA = jobViewsMap[a.id] || 0;
+    const viewsB = jobViewsMap[b.id] || 0;
+    if (viewsSort === "most-viewed") return viewsB - viewsA;
+    if (viewsSort === "least-viewed") return viewsA - viewsB;
+    if (viewsSort === "title") return a.title.localeCompare(b.title);
+    if (viewsSort === "status") return a.status.localeCompare(b.status);
+    return 0;
+  });
+
+  const mostViewedJob = jobs.length > 0 
+    ? [...jobs].sort((a, b) => (jobViewsMap[b.id] || 0) - (jobViewsMap[a.id] || 0))[0]
+    : null;
+
   const categories = ["All", "Healthcare", "Engineering", "Hospitality", "Skilled Trades", "IT & Corporate", "General Services"];
   const applicantStatuses = ["All", "Pending Review", "Shortlisted", "Under Evaluation", "Deployed", "Archived"];
   const partnerStatuses = ["All", "New", "Reviewed", "Contacted", "In Negotiation", "Archived"];
 
-  const handlePartnerStatusChange = (id: string, newStatus: RecruitmentPartnerRequest["status"]) => {
+  const handlePartnerStatusChange = async (id: string, newStatus: RecruitmentPartnerRequest["status"]) => {
+    if (isSupabaseConfigured) {
+      await updatePartnerInquiryStatusInSupabase(id, newStatus);
+    }
     updatePartnerRequestStatus(id, newStatus);
+    setPartnerRequests(prev => prev.map(p => p.id === id ? { ...p, status: newStatus } : p));
   };
 
   const handleSavePartnerNote = (id: string) => {
@@ -382,9 +490,13 @@ export default function AdminJobs() {
     }
   };
 
-  const handleDeletePartnerReq = (id: string, compName: string) => {
+  const handleDeletePartnerReq = async (id: string, compName: string) => {
     if (confirm(`Are you sure you want to delete the European recruitment partner request from "${compName}" (${id})?`)) {
+      if (isSupabaseConfigured) {
+        await deletePartnerInquiryInSupabase(id);
+      }
       deletePartnerRequest(id);
+      setPartnerRequests(prev => prev.filter(p => p.id !== id));
       if (selectedPartnerRequest?.id === id) {
         setSelectedPartnerRequest(null);
       }
@@ -578,6 +690,23 @@ export default function AdminJobs() {
               {partnerRequests.length}
             </span>
           </button>
+
+          <button
+            onClick={() => setActiveTab("views")}
+            className={`flex items-center gap-2 px-5 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-all shadow-xs ${
+              activeTab === "views"
+                ? "bg-[#0B2149] text-white shadow-md"
+                : "bg-white text-slate-600 hover:bg-slate-100 border border-slate-200"
+            }`}
+          >
+            <Eye className="w-4 h-4 text-[#007BFF]" />
+            <span>Job Views &amp; Analytics</span>
+            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+              activeTab === "views" ? "bg-[#007BFF] text-white" : "bg-blue-50 text-[#007BFF]"
+            }`}>
+              {totalJobViews.toLocaleString()}
+            </span>
+          </button>
         </div>
 
         {/* TAB 1: JOB OPENINGS MANAGEMENT */}
@@ -702,6 +831,10 @@ export default function AdminJobs() {
                           <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-semibold">
                             {job.category}
                           </span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-[#007BFF] text-[11px] font-bold flex items-center gap-1">
+                            <Eye className="w-3 h-3" />
+                            {(jobViewsMap[job.id] || 0).toLocaleString()} Views
+                          </span>
                           {job.postedDate && (
                             <span className="text-[11px] text-slate-400">
                               Posted: {job.postedDate}
@@ -749,6 +882,14 @@ export default function AdminJobs() {
 
                       {/* Actions column */}
                       <div className="flex lg:flex-col items-center gap-2 pt-4 lg:pt-0 lg:border-l lg:border-slate-100 lg:pl-6">
+                        <Link
+                          to={`/job-openings/${job.id}`}
+                          target="_blank"
+                          className="flex-1 lg:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-colors w-full"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                          View Live
+                        </Link>
                         <button
                           onClick={() => openEditJobModal(job)}
                           className="flex-1 lg:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-xl transition-colors w-full"
@@ -1318,6 +1459,235 @@ export default function AdminJobs() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* TAB 4: JOB VIEWS & ANALYTICS (SUPABASE-POWERED) */}
+        {activeTab === "views" && (
+          <div>
+            {/* Header Card */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 mb-6 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-bold text-[#007BFF] tracking-wider uppercase mb-1">
+                  <Eye className="w-4 h-4" />
+                  SUPABASE JOB VIEW TRACKING SYSTEM
+                </div>
+                <h2 className="text-xl sm:text-2xl font-extrabold text-[#0B2149]">
+                  Job Opening Views &amp; Performance
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
+                  Accurate visitor view metrics for each job posting, recorded in Supabase <code className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 font-mono text-[11px]">job_views</code> table with RLS security and anti-duplicate prevention.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600">
+                  <span className={`w-2 h-2 rounded-full ${isSupabaseConfigured ? "bg-emerald-500 animate-pulse" : "bg-blue-500"}`} />
+                  <span>{isSupabaseConfigured ? "Supabase Live Connected" : "Local Sync / Ready for Supabase"}</span>
+                </div>
+
+                <button
+                  onClick={loadJobViews}
+                  disabled={viewsLoading}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#0B2149] hover:bg-[#007BFF] text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-60"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${viewsLoading ? "animate-spin" : ""}`} />
+                  {viewsLoading ? "Fetching..." : "Refresh Views"}
+                </button>
+              </div>
+            </div>
+
+            {/* Metric Overview Strip */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Job Views</span>
+                  <div className="w-8 h-8 rounded-lg bg-blue-50 text-[#007BFF] flex items-center justify-center">
+                    <Eye className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-3xl font-extrabold text-[#0B2149]">{totalJobViews.toLocaleString()}</div>
+                <div className="text-[11px] text-slate-500 mt-1">Across all active vacancies</div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Most Viewed Job</span>
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <Award className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-base font-extrabold text-[#0B2149] truncate">
+                  {mostViewedJob ? mostViewedJob.title : "None yet"}
+                </div>
+                <div className="text-[11px] text-emerald-600 font-bold mt-1">
+                  {mostViewedJob ? `${(jobViewsMap[mostViewedJob.id] || 0).toLocaleString()} views recorded` : "0 views"}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Active Job Posts</span>
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <Briefcase className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-3xl font-extrabold text-[#0B2149]">{jobs.length}</div>
+                <div className="text-[11px] text-slate-500 mt-1">Currently tracking views</div>
+              </div>
+
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Avg Views / Job</span>
+                  <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+                    <CheckCircle2 className="w-4 h-4" />
+                  </div>
+                </div>
+                <div className="text-3xl font-extrabold text-[#0B2149]">
+                  {jobs.length > 0 ? (totalJobViews / jobs.length).toFixed(1) : 0}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-1">Visitor engagement rate</div>
+              </div>
+            </div>
+
+            {/* Sort & Filter Controls */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Sort Jobs By:</span>
+                <select
+                  value={viewsSort}
+                  onChange={(e) => setViewsSort(e.target.value as any)}
+                  className="text-xs font-semibold px-3 py-2 border border-slate-200 rounded-xl bg-slate-50 text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#007BFF]"
+                >
+                  <option value="most-viewed">Most Viewed (High to Low)</option>
+                  <option value="least-viewed">Least Viewed (Low to High)</option>
+                  <option value="title">Job Title (A - Z)</option>
+                  <option value="status">Hiring Status</option>
+                </select>
+              </div>
+
+              <div className="text-xs text-slate-500">
+                Displaying view metrics for <strong className="text-slate-800">{jobs.length}</strong> jobs
+              </div>
+            </div>
+
+            {/* Job Views Table */}
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs mb-8">
+              {jobs.length === 0 ? (
+                <div className="p-12 text-center">
+                  <Briefcase className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                  <h3 className="text-lg font-bold text-[#0B2149]">No Job Openings</h3>
+                  <p className="text-xs text-slate-500 mt-1">Post a job to begin tracking visitor views.</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        <th className="py-3.5 px-4 w-12 text-center">#</th>
+                        <th className="py-3.5 px-4">Job Title &amp; Details</th>
+                        <th className="py-3.5 px-4">Category</th>
+                        <th className="py-3.5 px-4">Status</th>
+                        <th className="py-3.5 px-4 text-right">Total Views</th>
+                        <th className="py-3.5 px-4 w-44">Popularity Share</th>
+                        <th className="py-3.5 px-4 text-center">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-xs">
+                      {sortedJobsByViews.map((job, idx) => {
+                        const views = jobViewsMap[job.id] || 0;
+                        const maxViews = Math.max(1, ...Object.values(jobViewsMap));
+                        const percentage = Math.min(100, Math.round((views / maxViews) * 100));
+
+                        return (
+                          <tr key={job.id} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="py-4 px-4 text-center font-bold text-slate-400">
+                              {idx + 1}
+                            </td>
+                            <td className="py-4 px-4">
+                              <div className="font-bold text-[#0B2149] text-sm hover:text-[#007BFF]">
+                                <Link to={`/job-openings/${job.id}`} target="_blank">
+                                  {job.title}
+                                </Link>
+                              </div>
+                              <div className="text-[11px] text-slate-400 font-mono flex items-center gap-2 mt-0.5">
+                                <span>Ref: {job.id}</span>
+                                <span>•</span>
+                                <span>{job.location}</span>
+                              </div>
+                            </td>
+                            <td className="py-4 px-4">
+                              <span className="px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 text-[11px] font-medium">
+                                {job.category}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4">
+                              <span className={`px-2.5 py-1 rounded-full text-[10.5px] font-bold ${
+                                job.status === "Urgent Hiring" 
+                                  ? "bg-rose-100 text-rose-700" 
+                                  : "bg-blue-50 text-[#007BFF]"
+                              }`}>
+                                {job.status}
+                              </span>
+                            </td>
+                            <td className="py-4 px-4 text-right">
+                              <div className="font-extrabold text-base text-[#0B2149]">
+                                {views.toLocaleString()}
+                              </div>
+                              <div className="text-[10px] text-slate-400">views recorded</div>
+                            </td>
+                            <td className="py-4 px-4">
+                              <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                                <div 
+                                  className="bg-[#007BFF] h-2 rounded-full transition-all duration-500"
+                                  style={{ width: `${views > 0 ? Math.max(6, percentage) : 0}%` }}
+                                />
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-1">
+                                {percentage}% of highest job
+                              </div>
+                            </td>
+                            <td className="py-4 px-4 text-center">
+                              <div className="flex items-center justify-center gap-1.5">
+                                <Link
+                                  to={`/job-openings/${job.id}`}
+                                  target="_blank"
+                                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-[#007BFF] transition-colors"
+                                  title="Open Public Job Details Page"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </Link>
+                                <button
+                                  onClick={() => openEditJobModal(job)}
+                                  className="p-2 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 hover:text-[#0B2149] transition-colors"
+                                  title="Edit Job"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* Supabase Security & Database Info Card */}
+            <div className="bg-slate-100/80 rounded-2xl border border-slate-200 p-6 text-xs text-slate-600 leading-relaxed">
+              <h4 className="font-bold text-[#0B2149] text-sm mb-2 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                Supabase Security Architecture
+              </h4>
+              <p className="mb-2">
+                Job views are recorded through the secure PostgreSQL function <code className="bg-white px-1.5 py-0.5 rounded text-[#0B2149] font-mono">record_job_view(p_job_id)</code> using <code className="bg-white px-1.5 py-0.5 rounded text-[#0B2149] font-mono">SECURITY DEFINER</code>. This allows public website visitors to record view events without exposing the private service-role key or granting direct table read/write permissions to anonymous users.
+              </p>
+              <p>
+                Row Level Security (RLS) is strictly enforced: only authorized administrators defined in the <code className="bg-white px-1.5 py-0.5 rounded text-[#0B2149] font-mono">admin_users</code> table and verified via <code className="bg-white px-1.5 py-0.5 rounded text-[#0B2149] font-mono">is_admin()</code> can view and query full view records.
+              </p>
+            </div>
           </div>
         )}
 

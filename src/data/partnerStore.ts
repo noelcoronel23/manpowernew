@@ -35,78 +35,16 @@ export interface RecruitmentPartnerRequest {
 
 const STORAGE_KEY = "maisc_recruitment_partner_requests";
 
-const INITIAL_REQUESTS: RecruitmentPartnerRequest[] = [
-  {
-    id: "REQ-EUR-2026-081",
-    submittedAt: "2026-09-18T14:20:00Z",
-    companyName: "Bavaria Klinikum & Pflegezentrum GmbH",
-    country: "Germany",
-    city: "Munich",
-    industry: "Healthcare & Eldercare",
-    contactPerson: "Dr. Klaus Richter",
-    designation: "Head of International HR & Talent Acquisition",
-    corporateEmail: "k.richter@bavaria-klinik.de",
-    phoneNumber: "+49 89 2345 6789",
-    website: "https://bavaria-klinik-sample.de",
-    registrationNumber: "HRB 94821 Munich",
-
-    // SECTION 2: RECRUITMENT PARTNERSHIP
-    partnershipType: "Long-term Recruitment Partnership",
-    previouslyRecruitedFilipino: "Yes",
-    countriesRecruitedFrom: "Philippines, Tunisia, Vietnam, India",
-    hasPhilippinePartner: "Yes",
-    currentPhilippinePartnerName: "Apex Global Human Resources (Contract ending Q4 2026)",
-    additionalInfo: "We are seeking a reliable, accredited Philippine DMW agency to deploy 25-30 registered nurses with B1/B2 German language proficiency annually. Looking for dedicated document processing and pre-departure German orientation.",
-
-    targetPositions: "Registered General Nurses (RN), Geriatric Care Specialists",
-    estimatedHeadcount: "30 nurses / year",
-    targetDeploymentTimeline: "Q1 2027",
-    workplaceLocation: "Munich and Nuremberg facilities",
-    candidateRequirements: "B1 Goethe/Telc certificate, minimum 2 years hospital bed-side experience.",
-    status: "New"
-  },
-  {
-    id: "REQ-EUR-2026-074",
-    submittedAt: "2026-09-15T09:45:00Z",
-    companyName: "Nordic Construct & Infrastructure A/S",
-    country: "Denmark",
-    city: "Copenhagen",
-    industry: "Construction & Civil Engineering",
-    contactPerson: "Astrid Lindholm",
-    designation: "Project Workforce Director",
-    corporateEmail: "a.lindholm@nordic-construct.dk",
-    phoneNumber: "+45 32 11 44 88",
-    website: "https://nordic-construct-sample.dk",
-    registrationNumber: "CVR 38291042",
-
-    // SECTION 2: RECRUITMENT PARTNERSHIP
-    partnershipType: "Recruitment of Filipino Workers",
-    previouslyRecruitedFilipino: "No",
-    countriesRecruitedFrom: "Poland, Romania, Lithuania",
-    hasPhilippinePartner: "No",
-    currentPhilippinePartnerName: "",
-    additionalInfo: "First time looking into Philippine recruitment after hearing strong recommendations regarding Filipino welders, structural fabricators, and heavy equipment operators in Nordic projects.",
-
-    targetPositions: "6G SMAW/GTAW Welders, Heavy Equipment Operators, Riggers",
-    estimatedHeadcount: "15-20 workers",
-    targetDeploymentTimeline: "November 2026",
-    workplaceLocation: "Odense and Copenhagen harbour worksites",
-    candidateRequirements: "AWS/ISO welding certificate, basic conversational English.",
-    status: "Reviewed"
-  }
-];
-
 export function getPartnerRequests(): RecruitmentPartnerRequest[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(INITIAL_REQUESTS));
-      return INITIAL_REQUESTS;
+      return [];
     }
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : INITIAL_REQUESTS;
+    return Array.isArray(parsed) ? parsed : [];
   } catch {
-    return INITIAL_REQUESTS;
+    return [];
   }
 }
 

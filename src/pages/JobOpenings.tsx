@@ -16,6 +16,7 @@ import {
   Lock
 } from "lucide-react";
 import { Job, getJobs, subscribeToJobs } from "../data/jobStore";
+import { fetchSupabaseJobs } from "../lib/supabase";
 
 export default function JobOpenings() {
   const [jobs, setJobs] = useState<Job[]>(() => getJobs());
@@ -23,6 +24,12 @@ export default function JobOpenings() {
   const [searchQuery, setSearchQuery] = useState<string>("");
 
   useEffect(() => {
+    fetchSupabaseJobs().then((sbJobs) => {
+      if (sbJobs && sbJobs.length > 0) {
+        setJobs(sbJobs);
+      }
+    });
+
     const unsubscribe = subscribeToJobs(() => {
       setJobs(getJobs());
     });
@@ -198,7 +205,9 @@ export default function JobOpenings() {
                     </div>
 
                     <h3 className="text-xl md:text-2xl font-bold text-[#0B2149] mb-2 group-hover:text-[#007BFF] transition-colors">
-                      {job.title}
+                      <Link to={`/job-openings/${job.id}`} className="hover:underline">
+                        {job.title}
+                      </Link>
                     </h3>
 
                     <p className="text-slate-600 text-sm leading-relaxed mb-4">
@@ -256,6 +265,12 @@ export default function JobOpenings() {
                         Apply for Job
                       </Link>
                     )}
+                    <Link
+                      to={`/job-openings/${job.id}`}
+                      className="inline-flex items-center justify-center px-5 py-2.5 rounded-xl border border-slate-200 hover:border-[#007BFF] hover:bg-blue-50/50 text-[#0B2149] hover:text-[#007BFF] text-xs font-bold transition-all mb-2"
+                    >
+                      View Full Details
+                    </Link>
                     <Link
                       to="/contact-us"
                       className="inline-flex items-center justify-center px-5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors"
