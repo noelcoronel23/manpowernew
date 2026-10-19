@@ -3,6 +3,7 @@ export interface ApplicantDocument {
   size: number;
   type: string;
   dataUrl?: string; // For previews/storage
+  storagePath?: string; // Supabase bucket storage path
 }
 
 export interface CandidateApplication {

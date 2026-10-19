@@ -41,6 +41,12 @@ import {
   getCandidateDocumentUrl
 } from "../lib/supabase";
 import {
+  submitJobOpeningToGoogleSheets,
+  GoogleJobSubmissionPayload,
+  GOOGLE_SHEET_COLUMN_HEADERS,
+  GOOGLE_APPS_SCRIPT_SAMPLE_CODE
+} from "../lib/googleJobSubmission";
+import {
   Briefcase,
   Plus,
   Trash2,
@@ -73,7 +79,11 @@ import {
   Handshake,
   Globe2,
   Building2,
-  MessageSquare
+  MessageSquare,
+  FileSpreadsheet,
+  Copy,
+  Check,
+  Loader2
 } from "lucide-react";
 
 const PASSWORD_KEY = "maisc_admin_password";
@@ -132,6 +142,11 @@ export default function AdminJobs() {
   const [formStatus, setFormStatus] = useState<Job["status"]>("Actively Recruiting");
   const [formApplyUrl, setFormApplyUrl] = useState("https://docs.google.com/forms/d/e/1FAIpQLScAi-k7zxpBU0JMhl5M1zEsb7c6ic8KnAp5GhC3yUUBjV5h7Q/viewform");
   const [formSalary, setFormSalary] = useState("");
+  const [isSubmittingJob, setIsSubmittingJob] = useState(false);
+  const [jobSuccessMessage, setJobSuccessMessage] = useState<string | null>(null);
+  const [jobErrorMessage, setJobErrorMessage] = useState<string | null>(null);
+  const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Check auth session
   useEffect(() => {
@@ -247,6 +262,9 @@ export default function AdminJobs() {
   // Job Handlers
   const openNewJobModal = () => {
     setEditingJobId(null);
+    setJobSuccessMessage(null);
+    setJobErrorMessage(null);
+    setIsSubmittingJob(false);
     setFormTitle("");
     setFormCategory("Healthcare");
     setFormLocation("");
@@ -262,6 +280,9 @@ export default function AdminJobs() {
 
   const openEditJobModal = (job: Job) => {
     setEditingJobId(job.id);
+    setJobSuccessMessage(null);
+    setJobErrorMessage(null);
+    setIsSubmittingJob(false);
     setFormTitle(job.title);
     setFormCategory(job.category);
     setFormLocation(job.location);
@@ -300,28 +321,75 @@ export default function AdminJobs() {
       salary: formSalary.trim()
     };
 
-    const targetJob: Job = {
-      ...jobPayload,
-      id: editingJobId || `job-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      postedDate: new Date().toISOString().split("T")[0]
-    };
+    if (editingJobId) {
+      // Editing an existing published vacancy
+      setIsSubmittingJob(true);
+      setJobErrorMessage(null);
 
-    if (isSupabaseConfigured) {
-      const saved = await saveSupabaseJob(targetJob);
-      if (!saved) {
-        alert("Failed to save job to the Supabase database. The change was NOT saved to production.");
-        return;
+      const targetJob: Job = {
+        ...jobPayload,
+        id: editingJobId,
+        postedDate: new Date().toISOString().split("T")[0]
+      };
+
+      if (isSupabaseConfigured) {
+        const saved = await saveSupabaseJob(targetJob);
+        if (!saved) {
+          setIsSubmittingJob(false);
+          setJobErrorMessage("Failed to save changes to the Supabase database. The change was NOT saved.");
+          return;
+        }
+      }
+
+      updateJob(editingJobId, jobPayload);
+      setIsSubmittingJob(false);
+      setIsFormOpen(false);
+      setEditingJobId(null);
+    } else {
+      // POSTING NEW JOB OPENING
+      // Workflow: Recruiter fills out existing website form
+      // -> form submits to Google Apps Script
+      // -> Apps Script adds a new row to Google Sheets
+      // -> submission status is set to "Pending Review"
+      // -> admin reviews the submission
+      // -> only approved jobs are added to Supabase and published on the website.
+      setIsSubmittingJob(true);
+      setJobErrorMessage(null);
+      setJobSuccessMessage(null);
+
+      const submissionPayload: GoogleJobSubmissionPayload = {
+        jobTitle: formTitle.trim(),
+        category: formCategory,
+        hiringStatus: formStatus,
+        location: formLocation.trim(),
+        jobType: formType.trim(),
+        experience: formExperience.trim(),
+        salary: formSalary.trim(),
+        skills: formKeySkills.trim(),
+        description: formDescription.trim(),
+        applicationLink: formApplyUrl.trim(),
+        submissionStatus: "Pending Review",
+        submittedAt: new Date().toISOString(),
+        submissionId: `REQ-${Date.now().toString(36).toUpperCase()}`
+      };
+
+      const result = await submitJobOpeningToGoogleSheets(submissionPayload);
+      setIsSubmittingJob(false);
+
+      if (result.success) {
+        setJobSuccessMessage("Job opening submitted successfully. It is pending admin review.");
+        // Do NOT save to Supabase or local store - pending admin review!
+        setFormTitle("");
+        setFormLocation("");
+        setFormExperience("");
+        setFormSalary("");
+        setFormKeySkills("");
+        setFormDescription("");
+      } else {
+        // If Google Sheets submission fails, do NOT claim that the job was saved
+        setJobErrorMessage(result.error || "Failed to submit job opening to Google Sheets. The job opening was NOT saved.");
       }
     }
-
-    if (editingJobId) {
-      updateJob(editingJobId, jobPayload);
-    } else {
-      addJob(jobPayload);
-    }
-
-    setIsFormOpen(false);
-    setEditingJobId(null);
   };
 
   const handleDeleteJob = async (id: string, title: string) => {
@@ -596,13 +664,23 @@ export default function AdminJobs() {
 
           <div className="flex flex-wrap items-center gap-2.5">
             {activeTab === "jobs" && (
-              <button
-                onClick={openNewJobModal}
-                className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#CE1126] hover:bg-[#a80e1f] text-white text-xs sm:text-sm font-bold rounded-xl shadow-sm transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                Post New Job
-              </button>
+              <>
+                <button
+                  onClick={openNewJobModal}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#CE1126] hover:bg-[#a80e1f] text-white text-xs sm:text-sm font-bold rounded-xl shadow-sm transition-all cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  Post New Job
+                </button>
+                <button
+                  onClick={() => setIsGoogleSheetsModalOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-[#0f7652] border border-emerald-200 text-xs sm:text-sm font-bold rounded-xl shadow-xs transition-all cursor-pointer"
+                  title="View Google Sheets Columns & Apps Script Setup Code"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  Google Sheets Setup
+                </button>
+              </>
             )}
             <Link
               to="/apply-now"
@@ -792,15 +870,9 @@ export default function AdminJobs() {
                     <div className="flex justify-center gap-3">
                       <button
                         onClick={openNewJobModal}
-                        className="px-5 py-2.5 bg-[#0B2149] text-white text-xs font-bold rounded-xl shadow-sm hover:bg-[#007BFF]"
+                        className="px-5 py-2.5 bg-[#0B2149] text-white text-xs font-bold rounded-xl shadow-sm hover:bg-[#007BFF] transition-colors"
                       >
                         + Post First Job
-                      </button>
-                      <button
-                        onClick={resetToDefaults}
-                        className="px-5 py-2.5 border border-slate-200 text-slate-700 text-xs font-bold rounded-xl hover:bg-slate-50"
-                      >
-                        Load Sample Jobs
                       </button>
                     </div>
                   ) : (
@@ -1334,7 +1406,7 @@ export default function AdminJobs() {
                             <div>
                               <span className="text-slate-400 uppercase text-[10px] font-bold block">Contact Channels</span>
                               <div className="flex flex-col gap-0.5">
-                                <a href={`mailto:${req.corporateEmail}`} className="text-[#007BFF] font-semibold hover:underline truncate">
+                                <a href={`mailto:${req.corporateEmail}?cc=noelcoronel23@gmail.com,arnizza1973@gmail.com`} className="text-[#007BFF] font-semibold hover:underline truncate">
                                   {req.corporateEmail}
                                 </a>
                                 <a href={`tel:${req.phoneNumber}`} className="text-slate-700 font-semibold hover:underline">
@@ -1731,7 +1803,7 @@ export default function AdminJobs() {
               <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl">
                 <div>
                   <span className="font-bold text-slate-400 uppercase text-[10px] block">Email Address</span>
-                  <a href={`mailto:${selectedApplicant.email}`} className="text-[#007BFF] font-semibold hover:underline">
+                  <a href={`mailto:${selectedApplicant.email}?cc=applicantresume@maisc.ph,noelcoronel23@gmail.com,arnizza1973@gmail.com`} className="text-[#007BFF] font-semibold hover:underline">
                     {selectedApplicant.email}
                   </a>
                 </div>
@@ -1986,7 +2058,7 @@ export default function AdminJobs() {
                   </div>
                   <div>
                     <span className="font-bold text-slate-400 uppercase text-[10px] block">Direct Corporate Email</span>
-                    <a href={`mailto:${selectedPartnerRequest.corporateEmail}`} className="text-[#007BFF] font-semibold hover:underline">
+                    <a href={`mailto:${selectedPartnerRequest.corporateEmail}?cc=noelcoronel23@gmail.com,arnizza1973@gmail.com`} className="text-[#007BFF] font-semibold hover:underline">
                       {selectedPartnerRequest.corporateEmail}
                     </a>
                   </div>
@@ -2185,16 +2257,76 @@ export default function AdminJobs() {
                   {editingJobId ? "Edit Job Vacancy" : "Post New Job Opening"}
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Fill in the vacancy details below to publish directly to the website.
+                  {editingJobId 
+                    ? "Fill in the vacancy details below to update this published opening." 
+                    : "Fill in the vacancy details below to submit for administrative review."}
                 </p>
               </div>
               <button
-                onClick={() => setIsFormOpen(false)}
-                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
+                onClick={() => {
+                  setIsFormOpen(false);
+                  setJobSuccessMessage(null);
+                  setJobErrorMessage(null);
+                }}
+                className="p-2 rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Success Message Banner */}
+            {jobSuccessMessage && (
+              <div className="mb-6 p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-start gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="text-xs space-y-1.5 flex-1">
+                  <p className="font-bold text-sm text-emerald-800">{jobSuccessMessage}</p>
+                  <p className="text-emerald-700 leading-relaxed">
+                    This vacancy has been recorded in Google Sheets with status <strong>"Pending Review"</strong>. Once an administrator reviews and approves the submission, it will be added to Supabase and published on the live website.
+                  </p>
+                  <div className="pt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setJobSuccessMessage(null);
+                        setFormTitle("");
+                        setFormLocation("");
+                        setFormExperience("");
+                        setFormSalary("");
+                        setFormKeySkills("");
+                        setFormDescription("");
+                      }}
+                      className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs transition-colors cursor-pointer"
+                    >
+                      Post Another Job
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsFormOpen(false);
+                        setJobSuccessMessage(null);
+                      }}
+                      className="px-3.5 py-1.5 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-50 rounded-lg font-bold text-xs transition-colors cursor-pointer"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Error Message Banner */}
+            {jobErrorMessage && (
+              <div className="mb-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-900 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div className="text-xs space-y-1 flex-1">
+                  <p className="font-bold text-sm text-rose-800">Submission Encountered an Issue</p>
+                  <p className="text-rose-700 leading-relaxed">{jobErrorMessage}</p>
+                  <p className="text-rose-600 font-medium pt-1">
+                    Notice: The job was <strong>NOT saved</strong>. Please verify that <code className="bg-rose-100 px-1 py-0.5 rounded font-mono text-rose-900">VITE_GOOGLE_JOB_SUBMISSION_URL</code> is properly set in your environment.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSaveJob} className="space-y-4 text-xs">
               <div>
@@ -2343,22 +2475,170 @@ export default function AdminJobs() {
                 />
               </div>
 
-              <div className="pt-4 flex items-center justify-end gap-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsFormOpen(false)}
-                  className="px-5 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2.5 bg-[#0B2149] hover:bg-[#007BFF] text-white text-xs font-bold rounded-xl shadow-md transition-colors"
-                >
-                  {editingJobId ? "Save Changes" : "Publish Opening"}
-                </button>
+              <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-100">
+                <div className="text-[11px] text-slate-400">
+                  {!editingJobId ? (
+                    <span>Submits to Google Sheets • Status: <strong className="text-amber-600 font-semibold">Pending Review</strong></span>
+                  ) : (
+                    <span>Updates published opening in Supabase</span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                  <button
+                    type="button"
+                    disabled={isSubmittingJob}
+                    onClick={() => {
+                      setIsFormOpen(false);
+                      setJobSuccessMessage(null);
+                      setJobErrorMessage(null);
+                    }}
+                    className="px-5 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingJob}
+                    className="px-6 py-2.5 bg-[#0B2149] hover:bg-[#007BFF] disabled:bg-slate-400 text-white text-xs font-bold rounded-xl shadow-md transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    {isSubmittingJob && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {editingJobId 
+                      ? (isSubmittingJob ? "Saving..." : "Save Changes") 
+                      : (isSubmittingJob ? "Submitting to Google Sheets..." : "Publish Opening")}
+                  </button>
+                </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* GOOGLE SHEETS SETUP & APPS SCRIPT GUIDE MODAL */}
+      {isGoogleSheetsModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-3xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 my-8">
+            <div className="flex items-center justify-between pb-4 mb-6 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-[#0f7652] flex items-center justify-center">
+                  <FileSpreadsheet className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-[#0B2149] text-lg">
+                    Google Sheets &amp; Apps Script Integration
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Configuration guide for recruiter job intake staging workflow
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsGoogleSheetsModalOpen(false)} 
+                className="text-slate-400 hover:text-slate-600 p-2 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Workflow Diagram */}
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">Workflow Process</h4>
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-slate-600 text-center sm:text-left">
+                <div className="p-2.5 bg-white rounded-xl border border-slate-200 shadow-xs flex-1 w-full">
+                  <span className="font-bold text-[#0B2149] block">1. Recruiter Form</span>
+                  <span className="text-[11px] text-slate-500">Website form submitted</span>
+                </div>
+                <div className="text-slate-300 font-bold hidden sm:block">→</div>
+                <div className="p-2.5 bg-white rounded-xl border border-slate-200 shadow-xs flex-1 w-full">
+                  <span className="font-bold text-amber-700 block">2. Google Sheets</span>
+                  <span className="text-[11px] text-slate-500">Status: "Pending Review"</span>
+                </div>
+                <div className="text-slate-300 font-bold hidden sm:block">→</div>
+                <div className="p-2.5 bg-white rounded-xl border border-slate-200 shadow-xs flex-1 w-full">
+                  <span className="font-bold text-emerald-700 block">3. Admin Approval</span>
+                  <span className="text-[11px] text-slate-500">Added to Supabase &amp; Live</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Env Var Status */}
+            <div className="mb-6 p-4 rounded-xl border border-slate-200 bg-white">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Environment Variable: <code className="font-mono text-[#007BFF]">VITE_GOOGLE_JOB_SUBMISSION_URL</code>
+                </span>
+                <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                  import.meta.env.VITE_GOOGLE_JOB_SUBMISSION_URL 
+                    ? "bg-emerald-100 text-emerald-800" 
+                    : "bg-amber-100 text-amber-800"
+                }`}>
+                  {import.meta.env.VITE_GOOGLE_JOB_SUBMISSION_URL ? "Configured" : "Not Set"}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500">
+                {import.meta.env.VITE_GOOGLE_JOB_SUBMISSION_URL
+                  ? `Active endpoint: ${import.meta.env.VITE_GOOGLE_JOB_SUBMISSION_URL.substring(0, 45)}...`
+                  : "Add your deployed Google Apps Script Web App URL to your .env file to enable live Google Sheets row additions."}
+              </p>
+            </div>
+
+            {/* Column Structure Reference */}
+            <div className="mb-6">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+                Google Sheet Column Structure ({GOOGLE_SHEET_COLUMN_HEADERS.length} Columns)
+              </h4>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+                {GOOGLE_SHEET_COLUMN_HEADERS.map((col, index) => (
+                  <div key={index} className="p-2 rounded-lg bg-slate-50 border border-slate-200/80 font-mono text-[11px] text-slate-700">
+                    <span className="text-slate-400 font-bold mr-1.5">{String.fromCharCode(65 + index)}:</span>
+                    {col}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Code Box with Copy */}
+            <div className="mb-4">
+              <div className="flex items-center justify-between pb-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Google Apps Script (Code.gs)
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(GOOGLE_APPS_SCRIPT_SAMPLE_CODE);
+                    setCopiedCode(true);
+                    setTimeout(() => setCopiedCode(false), 2500);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#0B2149] hover:bg-[#007BFF] text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                >
+                  {copiedCode ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-300" />
+                      <span>Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy Script</span>
+                    </>
+                  )}
+                </button>
+              </div>
+              <pre className="p-4 bg-slate-900 text-slate-100 rounded-2xl text-[11px] font-mono overflow-x-auto max-h-56 leading-relaxed">
+                {GOOGLE_APPS_SCRIPT_SAMPLE_CODE}
+              </pre>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsGoogleSheetsModalOpen(false)}
+                className="px-5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}

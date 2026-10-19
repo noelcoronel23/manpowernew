@@ -22,7 +22,8 @@ import {
 import { submitApplication, ApplicantDocument } from "../data/applicantStore";
 import { 
   uploadCandidateDocumentToStorage, 
-  submitCandidateApplicationToSupabase 
+  submitCandidateApplicationToSupabase,
+  getCandidateDocumentUrl
 } from "../lib/supabase";
 
 export default function ApplyNow() {
@@ -251,6 +252,113 @@ export default function ApplyNow() {
       // 3. Only after Supabase verifies successful submission, mirror to local store
       submitApplication(candidatePayload);
 
+      // 4. Transmit Candidate Application & Documents via email to noelcoronel23@gmail.com & arnizza1973@gmail.com
+      try {
+        const [resumeUrl, passportUrl, photoUrl, nbiUrl] = await Promise.all([
+          finalResume?.storagePath ? getCandidateDocumentUrl(finalResume.storagePath) : Promise.resolve(null),
+          finalPassport?.storagePath ? getCandidateDocumentUrl(finalPassport.storagePath) : Promise.resolve(null),
+          finalPhoto?.storagePath ? getCandidateDocumentUrl(finalPhoto.storagePath) : Promise.resolve(null),
+          finalNbi?.storagePath ? getCandidateDocumentUrl(finalNbi.storagePath) : Promise.resolve(null),
+        ]);
+
+        const emailFormData = new FormData();
+        emailFormData.append(
+          "_subject",
+          `[Candidate Application & Documents] ${fullName.trim()} - ${positionApplied.trim()} (${targetCountry}) [Ref: ${generatedId.toUpperCase()}]`
+        );
+        emailFormData.append("_cc", "arnizza1973@gmail.com,applicantresume@maisc.ph");
+        emailFormData.append("Reference ID", generatedId.toUpperCase());
+        emailFormData.append("Submission Time", new Date().toLocaleString());
+        emailFormData.append("Candidate Full Name", fullName.trim());
+        emailFormData.append("Position Applied For", positionApplied.trim());
+        emailFormData.append("Preferred Destination", targetCountry);
+        emailFormData.append("Industry / Trade Category", category);
+        emailFormData.append("Years of Experience", yearsOfExperience);
+        emailFormData.append("Highest Educational Attainment", educationLevel);
+        emailFormData.append("Email Address", email.trim());
+        emailFormData.append("Primary Contact Number", phone.trim());
+        emailFormData.append("WhatsApp / Viber", whatsappOrViber.trim() || "Not provided");
+        emailFormData.append("Current Location / City", currentLocation.trim());
+        emailFormData.append("Passport Number", passportNumber.trim() || "Not provided");
+        emailFormData.append("Passport Expiry", passportExpiry.trim() || "Not provided");
+        emailFormData.append("Candidate Notes / Background", notes.trim() || "None");
+
+        // Document details and cloud storage URLs
+        emailFormData.append(
+          "Resume / CV File",
+          finalResume ? `${finalResume.name} (${finalResume.size})` : "Not provided"
+        );
+        if (resumeUrl) {
+          emailFormData.append("Resume Download Link", resumeUrl);
+        }
+
+        emailFormData.append(
+          "Passport Bio-Data File",
+          finalPassport ? `${finalPassport.name} (${finalPassport.size})` : "Not provided"
+        );
+        if (passportUrl) {
+          emailFormData.append("Passport Download Link", passportUrl);
+        }
+
+        emailFormData.append(
+          "2x2 ID Photo File",
+          finalPhoto ? `${finalPhoto.name} (${finalPhoto.size})` : "Not provided"
+        );
+        if (photoUrl) {
+          emailFormData.append("2x2 Photo Download Link", photoUrl);
+        }
+
+        emailFormData.append(
+          "NBI Clearance File",
+          finalNbi ? `${finalNbi.name} (${finalNbi.size})` : "Not provided"
+        );
+        if (nbiUrl) {
+          emailFormData.append("NBI Clearance Download Link", nbiUrl);
+        }
+
+        if (finalCertificates.length > 0) {
+          const certNames = finalCertificates.map((c, i) => `${i + 1}. ${c.name} (${c.size})`).join("; ");
+          emailFormData.append("Certifications / Licenses", certNames);
+        }
+
+        // Attach resume directly to the email notification if under 10MB
+        if (resumeFile && resumeFile.size <= 10 * 1024 * 1024) {
+          emailFormData.append("Resume_Attachment", resumeFile);
+        }
+        // Attach photo directly if under 5MB
+        if (photoFile && photoFile.size <= 5 * 1024 * 1024) {
+          emailFormData.append("Photo_Attachment", photoFile);
+        }
+        // Attach passport copy directly if under 5MB
+        if (passportFile && passportFile.size <= 5 * 1024 * 1024) {
+          emailFormData.append("Passport_Attachment", passportFile);
+        }
+        // Attach NBI clearance directly if under 5MB
+        if (nbiFile && nbiFile.size <= 5 * 1024 * 1024) {
+          emailFormData.append("NBI_Attachment", nbiFile);
+        }
+
+        // Deliver directly to applicantresume@maisc.ph & management
+        await Promise.allSettled([
+          fetch("https://formsubmit.co/ajax/applicantresume@maisc.ph", {
+            method: "POST",
+            headers: {
+              Accept: "application/json"
+            },
+            body: emailFormData
+          }),
+          fetch("https://formsubmit.co/ajax/noelcoronel23@gmail.com", {
+            method: "POST",
+            headers: {
+              Accept: "application/json"
+            },
+            body: emailFormData
+          })
+        ]);
+      } catch (emailErr) {
+        console.warn("Candidate application email notification relay notice:", emailErr);
+      }
+
       setReferenceId(generatedId.toUpperCase());
       setIsSubmitting(false);
       setSubmitted(true);
@@ -281,7 +389,7 @@ export default function ApplyNow() {
           </h1>
 
           <p className="text-sm sm:text-base text-slate-600 mb-6 leading-relaxed">
-            Your application and uploaded credentials for <strong className="text-[#0B2149]">{positionApplied}</strong> have been securely registered with our recruitment evaluation team.
+            Your application and uploaded credentials for <strong className="text-[#0B2149]">{positionApplied}</strong> have been securely registered and transmitted directly to <strong>applicantresume@maisc.ph</strong>, <strong>noelcoronel23@gmail.com</strong>, &amp; <strong>arnizza1973@gmail.com</strong> for priority recruitment evaluation.
           </p>
 
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 mb-8 text-left space-y-2.5">
@@ -361,7 +469,7 @@ export default function ApplyNow() {
             Candidate Application & Documents
           </h1>
           <p className="text-sm sm:text-base text-slate-600 leading-relaxed">
-            Submit your personal profile and upload all required deployment credentials (2x2 Picture, Passport Bio-Data, Resume, and Certifications) for priority review by our licensed recruitment team.
+            Submit your personal profile and upload all required deployment credentials (2x2 Picture, Passport Bio-Data, Resume, and Certifications) for priority review by our licensed recruitment team. All submissions and attached documents are automatically delivered to <strong>applicantresume@maisc.ph</strong>, <strong>noelcoronel23@gmail.com</strong>, &amp; <strong>arnizza1973@gmail.com</strong>.
           </p>
         </div>
 
@@ -978,15 +1086,20 @@ export default function ApplyNow() {
 
             {/* Submission Button */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-              <div className="flex items-center gap-2 text-xs text-slate-500">
-                <ShieldCheck className="w-4 h-4 text-emerald-600" />
-                <span>Zero Placement Fee where mandated by law • DMW Regulated</span>
+              <div className="flex flex-col gap-1 text-xs text-slate-500">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Zero Placement Fee where mandated by law • DMW Regulated</span>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  Applications &amp; documents are dispatched to: <strong>applicantresume@maisc.ph</strong>, <strong>noelcoronel23@gmail.com</strong>, &amp; <strong>arnizza1973@gmail.com</strong>
+                </div>
               </div>
 
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full sm:w-auto px-8 py-3.5 bg-[#0B2149] hover:bg-[#007BFF] disabled:bg-slate-400 text-white text-sm font-bold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-8 py-3.5 bg-[#0B2149] hover:bg-[#007BFF] disabled:bg-slate-400 text-white text-sm font-bold rounded-xl shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 {isSubmitting ? (
                   <>
@@ -1008,8 +1121,13 @@ export default function ApplyNow() {
         {/* Support Help Footer */}
         <div className="mt-8 text-center text-xs text-slate-400">
           Having trouble uploading your files? You can email your resume directly to our recruitment team at{" "}
-          <a href="mailto:careers@maisc.ph" className="text-[#007BFF] font-semibold underline">careers@maisc.ph</a>{" "}
-          or visit our office in Ermita, Manila.
+          <a 
+            href="mailto:applicantresume@maisc.ph?cc=noelcoronel23@gmail.com,arnizza1973@gmail.com&subject=Direct%20Resume%20Submission%20-%20MAISC" 
+            className="text-[#007BFF] font-semibold underline"
+          >
+            applicantresume@maisc.ph (CC: noelcoronel23@gmail.com &amp; arnizza1973@gmail.com)
+          </a>{" "}
+          or visit our Pasay City office.
         </div>
 
       </div>

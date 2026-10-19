@@ -281,6 +281,33 @@ export default function JobOpenings() {
                 </div>
               </div>
             ))
+          ) : jobs.length === 0 ? (
+            <div className="bg-white rounded-3xl border border-slate-200/90 p-12 md:p-16 text-center max-w-2xl mx-auto shadow-sm">
+              <div className="w-16 h-16 rounded-2xl bg-blue-50 text-[#007BFF] flex items-center justify-center mx-auto mb-5 shadow-xs">
+                <Briefcase className="w-8 h-8" />
+              </div>
+              <h3 className="text-xl md:text-2xl font-extrabold text-[#0B2149] mb-3">
+                No Current Job Openings at This Time
+              </h3>
+              <p className="text-sm md:text-base text-slate-600 leading-relaxed max-w-lg mx-auto mb-8">
+                Our recruitment officers are actively evaluating upcoming deployment quotas with accredited foreign principals. All official openings will appear here once approved by the Department of Migrant Workers (DMW).
+              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3.5">
+                <Link
+                  to="/apply-now"
+                  className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3.5 rounded-xl bg-[#0B2149] hover:bg-[#007BFF] text-white text-xs sm:text-sm font-bold shadow-md transition-all gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  Submit Your Resume & Profile
+                </Link>
+                <Link
+                  to="/contact-us"
+                  className="w-full sm:w-auto inline-flex items-center justify-center px-6 py-3.5 rounded-xl border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs sm:text-sm font-semibold transition-colors"
+                >
+                  Inquire with Recruitment Team
+                </Link>
+              </div>
+            </div>
           ) : (
             <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center max-w-xl mx-auto">
               <Search className="w-12 h-12 text-slate-300 mx-auto mb-4" />
@@ -288,7 +315,7 @@ export default function JobOpenings() {
               <p className="text-sm text-slate-500 mb-6">Try resetting your filter or search keywords to view all available positions.</p>
               <button
                 onClick={() => { setSelectedCategory("All"); setSearchQuery(""); }}
-                className="px-5 py-2.5 rounded-xl bg-[#0B2149] text-white text-xs font-bold"
+                className="px-5 py-2.5 rounded-xl bg-[#0B2149] text-white text-xs font-bold hover:bg-[#007BFF] transition-colors"
               >
                 Reset Filters
               </button>

@@ -164,7 +164,7 @@ export default function ContactUs() {
                 <div>
                   <h4 className="font-bold text-[#0f7652] text-sm">Message Sent Successfully!</h4>
                   <p className="text-slate-600 text-xs mt-1 leading-relaxed">
-                    Thank you for reaching out. We have received your message and will reply to your email shortly.
+                    Thank you for reaching out. Your inquiry and attachments have been delivered directly to <strong>noelcoronel23@gmail.com</strong> &amp; <strong>arnizza1973@gmail.com</strong>. We will reply to your email shortly.
                   </p>
                   <button 
                     type="button" 

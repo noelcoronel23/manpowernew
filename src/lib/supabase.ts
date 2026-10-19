@@ -216,20 +216,26 @@ export async function fetchSupabaseJobs(): Promise<Job[] | null> {
     }
 
     if (Array.isArray(data) && data.length > 0) {
-      return data.map((row: any) => ({
-        id: String(row.id || row.job_id),
-        title: row.title || "Job Title",
-        category: row.category || "General Services",
-        location: row.location || "International",
-        type: row.type || "Full-Time",
-        experience: row.experience || "",
-        description: row.description || "",
-        keySkills: Array.isArray(row.key_skills) ? row.key_skills : (Array.isArray(row.keySkills) ? row.keySkills : []),
-        status: row.status || "Actively Recruiting",
-        applyUrl: row.apply_url || row.applyUrl || "",
-        salary: row.salary || "",
-        postedDate: row.posted_date || row.postedDate || new Date().toISOString().split("T")[0]
-      }));
+      const sampleJobIds = new Set(["job-001", "job-002", "job-003", "job-004"]);
+      return data
+        .filter((row: any) => {
+          const rowId = String(row.id || row.job_id);
+          return !sampleJobIds.has(rowId);
+        })
+        .map((row: any) => ({
+          id: String(row.id || row.job_id),
+          title: row.title || "Job Title",
+          category: row.category || "General Services",
+          location: row.location || "International",
+          type: row.type || "Full-Time",
+          experience: row.experience || "",
+          description: row.description || "",
+          keySkills: Array.isArray(row.key_skills) ? row.key_skills : (Array.isArray(row.keySkills) ? row.keySkills : []),
+          status: row.status || "Actively Recruiting",
+          applyUrl: row.apply_url || row.applyUrl || "",
+          salary: row.salary || "",
+          postedDate: row.posted_date || row.postedDate || new Date().toISOString().split("T")[0]
+        }));
     }
     return [];
   } catch (err) {

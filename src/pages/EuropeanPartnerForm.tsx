@@ -214,7 +214,9 @@ export default function EuropeanPartnerForm() {
         // Section 3
         "Target Positions Needed": targetPositions || "General inquiry",
         "Estimated Headcount": estimatedHeadcount || "Not specified",
-        "Target Deployment Timeline": targetDeploymentTimeline || "Flexible"
+        "Target Deployment Timeline": targetDeploymentTimeline || "Flexible",
+        "Workplace / Project Location": workplaceLocation || "Not specified",
+        "Candidate Requirements / Qualifications": candidateRequirements || "Not specified"
       };
 
       try {
@@ -332,7 +334,7 @@ export default function EuropeanPartnerForm() {
               Partnership Request Received!
             </h2>
             <p className="text-slate-700 text-sm max-w-lg mx-auto mb-4">
-              Thank you for submitting your manpower partnership requirements. Our International Bilateral Relations Director will review your proposal and get in touch with you shortly.
+              Thank you for submitting your manpower partnership requirements. An official copy has been transmitted directly to <strong>noelcoronel23@gmail.com</strong> &amp; <strong>arnizza1973@gmail.com</strong>. Our International Bilateral Relations Director will review your proposal and get in touch with you shortly.
             </p>
             <div className="inline-block bg-white px-4 py-2 rounded-lg border border-emerald-200 text-xs font-mono font-bold text-slate-800 mb-6">
               Reference ID: {submittedRefId}
@@ -845,7 +847,7 @@ export default function EuropeanPartnerForm() {
 
               <div className="pt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="text-xs text-slate-500 text-center sm:text-left">
-                  Copies will be routed to the Executive Recruitment Board.
+                  Submissions are transmitted directly to <strong>noelcoronel23@gmail.com</strong> &amp; <strong>arnizza1973@gmail.com</strong>.
                 </div>
 
                 <button
